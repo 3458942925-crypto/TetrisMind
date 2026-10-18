@@ -27,10 +27,13 @@ KEY_MAP = {
 }
 
 
+_HUMAN_AI_CYCLE = [InputMode.HUMAN, InputMode.AI]
+
+
 def _load_ai_policy():
     try:
         from ai.policy import policy
-        print("[input] AI policy loaded successfully.")
+        print("[input] AI policy loaded.")
         return policy
     except Exception as exc:
         print(f"[input] AI policy import failed ({exc}), degraded to NOOP.")
@@ -39,14 +42,36 @@ def _load_ai_policy():
 
 class InputHandler:
     def __init__(self, mode: InputMode):
-        self.mode = mode
-        self._ai_policy = _load_ai_policy() if mode == InputMode.AI else None
-        self._held_keys: dict[int, bool] = {}
+        self._mode = mode
+        self._ai_policy = _load_ai_policy()
+        self._prev_tab = False
+
+    @property
+    def mode(self) -> InputMode:
+        return self._mode
+
+    @property
+    def mode_name(self) -> str:
+        return self._mode.value.upper()
+
+    def poll_events(self, events: list | None = None) -> None:
+        events = events or []
+        tab_pressed = any(
+            e.type == pygame.KEYDOWN and e.key == pygame.K_TAB for e in events
+        )
+        if tab_pressed and not self._prev_tab:
+            self._cycle_mode()
+        self._prev_tab = tab_pressed
+
+    def _cycle_mode(self) -> None:
+        idx = _HUMAN_AI_CYCLE.index(self._mode) if self._mode in _HUMAN_AI_CYCLE else 0
+        self._mode = _HUMAN_AI_CYCLE[(idx + 1) % len(_HUMAN_AI_CYCLE)]
 
     def get_action(self, state: State | None = None, events: list | None = None) -> Action:
-        if self.mode == InputMode.HUMAN:
+        self.poll_events(events)
+        if self._mode == InputMode.HUMAN:
             return self._human_action(events or [])
-        if self.mode == InputMode.AI:
+        if self._mode == InputMode.AI:
             return self._ai_action(state)
         return Action.NOOP
 
@@ -63,6 +88,6 @@ class InputHandler:
             action = self._ai_policy(state)
             if isinstance(action, Action):
                 return action
-        except Exception as exc:
-            print(f"[input] AI policy error: {exc}")
+        except Exception:
+            pass
         return Action.NOOP

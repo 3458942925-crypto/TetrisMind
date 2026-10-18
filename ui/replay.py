@@ -17,6 +17,7 @@ class ReplayPlayer:
         self.actions: list[Action] = list(DEFAULT_ACTIONS)
         self._action_index = 0
         self._state: State | None = None
+        self.paused: bool = False
 
     def load_file(self, path: str | Path) -> None:
         path = Path(path)
@@ -28,6 +29,7 @@ class ReplayPlayer:
         self._action_index = 0
         self.engine.seed = self.seed
         self._state = None
+        self.paused = False
 
     @staticmethod
     def _decode_action(raw) -> Action:
@@ -46,11 +48,23 @@ class ReplayPlayer:
     def reset(self) -> State:
         self._action_index = 0
         self._state = self.engine.reset()
+        self.paused = False
         return self._state
+
+    def toggle_pause(self) -> None:
+        self.paused = not self.paused
+
+    def restart(self) -> State:
+        return self.reset()
+
+    def set_speed(self, speed: int) -> None:
+        self.speed = max(1, int(speed))
 
     def step_frame(self) -> State:
         if self._state is None:
             self._state = self.engine.reset()
+        if self.paused:
+            return self._state
         for _ in range(self.speed):
             if self._action_index >= len(self.actions):
                 break
@@ -66,3 +80,7 @@ class ReplayPlayer:
     @property
     def total_actions(self) -> int:
         return len(self.actions)
+
+    @property
+    def current_index(self) -> int:
+        return self._action_index
