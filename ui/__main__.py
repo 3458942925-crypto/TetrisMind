@@ -1,7 +1,14 @@
 ﻿import argparse
+import ctypes
 import os
 import sys
 from pathlib import Path
+
+# Windows DPI 感知修复（防止文字模糊）
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -175,6 +182,7 @@ def run_input_mode(headless: bool, frames: int, seed: int) -> int:
             action = handler.get_action(state, events)
             renderer.set_mode(handler.mode_name, handler.mode.value, is_replay=False)
             if action != Action.NOOP:
+                print(f"[DEBUG] Action executed: {action}, Mode: {handler.mode}")
                 state = engine.step(action)
             renderer.record_clears(getattr(state, 'cleared_lines', []))
             renderer.update_animations(dt)

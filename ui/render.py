@@ -17,52 +17,78 @@ def _sf(families: list[str], size: int, bold: bool = False) -> pygame.font.Font:
     except Exception:
         return pygame.font.Font(None, size)
 
-CELL = 30
+def _draw_sharp_text(surface: pygame.Surface, text: str, pos: tuple[int, int],
+                     color: tuple, font: pygame.font.Font) -> None:
+    surf = font.render(text, True, color)
+    surface.blit(surf, (int(pos[0]), int(pos[1])))
+
+# ============================================================
+# 动态布局计算：标准 10列 × 20行 俄罗斯方块规格（1.5x 放大）
+# ============================================================
 COLS = 10
 ROWS = 20
-HUD_LEFT_W = 130
-SIDEBAR_W = 170
-TOP_BAR_H = 70
-MARGIN = 16
-PANEL_GAP = 8
+CELL = 45  # 每格45px（30 * 1.5），确保正方形且清晰可见
 
-COLOR_BG = (20, 24, 34)
-COLOR_BOARD_BG = (10, 10, 15)
-COLOR_GRID = (40, 45, 60)
-COLOR_PANEL = (30, 35, 48)
-COLOR_PANEL_SHADOW = (8, 10, 18)
-COLOR_PANEL_BORDER = (80, 90, 120)
-COLOR_BOARD_BORDER = (0, 255, 255)
-COLOR_TEXT = (220, 225, 240)
-COLOR_TEXT_DIM = (100, 100, 110)
-COLOR_ACCENT = (255, 230, 0)
-COLOR_ACCENT2 = (0, 255, 255)
-COLOR_VALUE = (255, 255, 255)
-COLOR_NEON_INNER = (255, 255, 255)
+# 面板宽度（确保文字有舒适的padding，1.5x 放大）
+HUD_LEFT_W = 210
+SIDEBAR_W = 210
+PANEL_GAP = 15
+MARGIN = 24
+TOP_BAR_H = 105
 
-PIECE_COLORS = {
-    0: (15, 15, 22),
-    1: (0, 240, 255),
-    2: (80, 120, 255),
-    3: (255, 220, 40),
-    4: (255, 60, 80),
-    5: (60, 240, 120),
-    6: (200, 100, 255),
-    7: (255, 160, 40),
-}
+# 游戏区尺寸（严格 10×20 正方形网格）
+BOARD_W = COLS * CELL   # 450px
+BOARD_H = ROWS * CELL   # 900px
 
+# 窗口总宽度 = 左面板 + 间隙 + 游戏区 + 间隙 + 右面板 + 两侧边距
+BASE_W = MARGIN + HUD_LEFT_W + PANEL_GAP + BOARD_W + PANEL_GAP + SIDEBAR_W + MARGIN  # 1053px
+# 窗口总高度 = 顶部栏 + 上边距 + 游戏区 + 下边距
+BASE_H = TOP_BAR_H + MARGIN + BOARD_H + MARGIN  # 1053px
+
+# 各区域坐标（动态计算，非硬编码）
 HUD_LEFT_X = MARGIN
 HUD_LEFT_Y = TOP_BAR_H + MARGIN
-HUD_LEFT_H = ROWS * CELL
+HUD_LEFT_H = BOARD_H
+
 BOARD_X = HUD_LEFT_X + HUD_LEFT_W + PANEL_GAP
 BOARD_Y = TOP_BAR_H + MARGIN
-BOARD_W = COLS * CELL
-BOARD_H = ROWS * CELL
+
 SIDEBAR_X = BOARD_X + BOARD_W + PANEL_GAP
 SIDEBAR_Y = TOP_BAR_H + MARGIN
 SIDEBAR_H = BOARD_H
 
 CLEAR_SCORE_TABLE = [0, 100, 300, 500, 800]
+
+# 赛博朋克/现代深色色彩系统
+COLOR_BG = (30, 34, 45)
+COLOR_BG_GRADIENT = (22, 26, 36)
+COLOR_BOARD_BG = (18, 20, 28)
+COLOR_GRID = (58, 64, 80, 120)
+COLOR_GRID_FAINT = (58, 64, 80, 100)
+COLOR_PANEL = (35, 40, 55, 140)
+COLOR_PANEL_BORDER = (80, 180, 255, 160)
+COLOR_PANEL_INNER_GLOW = (255, 255, 255, 30)
+COLOR_BOARD_BORDER = (0, 220, 220)
+COLOR_BOARD_BORDER_GLOW = (0, 255, 255, 50)
+COLOR_TEXT = (220, 225, 240)
+COLOR_TEXT_DIM = (130, 135, 150)
+COLOR_TEXT_BRIGHT = (230, 235, 250)
+COLOR_ACCENT = (0, 230, 230)
+COLOR_ACCENT_GLOW = (0, 255, 255, 60)
+COLOR_ACCENT2 = (255, 230, 60)
+COLOR_VALUE = (255, 240, 80)
+COLOR_SHADOW = (0, 0, 0, 80)
+
+PIECE_COLORS = {
+    0: (18, 20, 28),
+    1: (0, 220, 240),
+    2: (70, 110, 240),
+    3: (255, 210, 30),
+    4: (255, 50, 70),
+    5: (50, 230, 110),
+    6: (190, 90, 240),
+    7: (255, 150, 30),
+}
 
 
 class LineClearAnimation:
@@ -134,7 +160,7 @@ class Renderer:
         _sys = ['Microsoft YaHei', 'Segoe UI', 'Arial']
         self.font = font or _sf(_sys, 18)
         self.big_font = big_font or _sf(_sys, 42, bold=True)
-        self.value_font = value_font or _sf(_sys, 48, bold=True)
+        self.value_font = value_font or _sf(_sys, 52, bold=True)
         self.mode_font = _sf(_sys, 52, bold=True)
         self.clock = clock
         self.mode_label: str = "HUMAN"
@@ -148,6 +174,75 @@ class Renderer:
         self._mode_transition: float = 0.0
         self.line_animations: list[LineClearAnimation] = []
         self.float_texts: list[FloatTextAnimation] = []
+        self._breath_phase: float = 0.0
+
+        # 性能优化：缓存
+        self._bg_cache: pygame.Surface | None = None
+        self._static_text_cache: dict[str, pygame.Surface] = {}
+        self._value_cache: dict[str, tuple[int, pygame.Surface]] = {}
+        self._label_surfaces: dict[str, pygame.Surface] = {}
+        self._controls_surfaces: list[pygame.Surface] = []
+        self._sidebar_labels: dict[str, pygame.Surface] = {}
+        self._fps_font = _sf(_sys, 22)
+        self._label_font = _sf(_sys, 25)
+        self._value_font = _sf(_sys, 72, bold=True)
+        try:
+            self._controls_font = pygame.font.SysFont("consolas", 21)
+        except Exception:
+            self._controls_font = _sf(["arial", "Microsoft YaHei"], 21)
+
+        self._build_bg_cache()
+        self._build_static_text_cache()
+
+    def _build_bg_cache(self) -> None:
+        self._bg_cache = pygame.Surface((BASE_W, BASE_H))
+        self._bg_cache.fill(COLOR_BG)
+        for y in range(0, BASE_H, 4):
+            ratio = y / BASE_H
+            r = int(COLOR_BG[0] * (1 - ratio) + COLOR_BG_GRADIENT[0] * ratio)
+            g = int(COLOR_BG[1] * (1 - ratio) + COLOR_BG_GRADIENT[1] * ratio)
+            b = int(COLOR_BG[2] * (1 - ratio) + COLOR_BG_GRADIENT[2] * ratio)
+            pygame.draw.line(self._bg_cache, (r, g, b), (0, y), (BASE_W, y))
+
+        for c in range(0, COLS + 1):
+            x = BOARD_X + c * CELL
+            pygame.draw.line(self._bg_cache, COLOR_GRID_FAINT, (x, BOARD_Y), (x, BOARD_Y + BOARD_H), 2)
+        for r in range(0, ROWS + 1):
+            y = BOARD_Y + r * CELL
+            pygame.draw.line(self._bg_cache, COLOR_GRID_FAINT, (BOARD_X, y), (BOARD_X + BOARD_W, y), 2)
+
+        board_bg = pygame.Rect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H)
+        pygame.draw.rect(self._bg_cache, COLOR_BOARD_BG, board_bg)
+
+    def _build_static_text_cache(self) -> None:
+        self._sidebar_labels = {
+            "HOLD": self.font.render("HOLD", True, COLOR_TEXT_DIM),
+            "NEXT": self.font.render("NEXT", True, COLOR_TEXT_DIM),
+            "empty": self.font.render("empty", True, (70, 70, 85)),
+        }
+        header = self._controls_font.render("CONTROLS", True, COLOR_ACCENT)
+        self._label_surfaces["CONTROLS"] = header
+
+    def _get_controls_surfaces(self, legend_alpha: int) -> list[pygame.Surface]:
+        if self.is_replay:
+            hints = ["P       pause", "R       restart", "1/2/4/8 speed"]
+        else:
+            hints = ["LEFT/RIGHT move", "UP/X      rotate", "SPACE     hard",
+                     "C/SHIFT   hold", "TAB       AI/HU", "ESC       quit"]
+        result = []
+        for line in hints:
+            surf = self._controls_font.render(line, True, (180, 185, 200))
+            surf.set_alpha(legend_alpha)
+            result.append(surf)
+        return result
+
+    def _get_value_surface(self, key: str, val: int) -> pygame.Surface:
+        cached = self._value_cache.get(key)
+        if cached and cached[0] == val:
+            return cached[1]
+        surf = self._value_font.render(f"{val:,}", True, COLOR_VALUE)
+        self._value_cache[key] = (val, surf)
+        return surf
 
     def set_mode(self, label: str, name_full: str, is_replay: bool = False) -> None:
         if self.mode_label != label:
@@ -171,9 +266,15 @@ class Renderer:
         self.float_texts = [t for t in self.float_texts if t.update(dt)]
         if self._mode_transition < 0.2:
             self._mode_transition = min(0.2, self._mode_transition + dt)
+        self._breath_phase = (self._breath_phase + dt * 2.0) % (2.0 * 3.14159)
+
+    def _get_breath_scale(self) -> float:
+        import math
+        return 1.0 + math.sin(self._breath_phase) * 0.03
 
     def draw(self, state: State) -> None:
-        self.surface.fill(COLOR_BG)
+        if self._bg_cache:
+            self.surface.blit(self._bg_cache, (0, 0))
         self._draw_top_bar()
         self._draw_hud_left(state)
         self._draw_board(state)
@@ -182,84 +283,91 @@ class Renderer:
         self._draw_float_texts()
         self._draw_overlay_texts()
 
+    def _draw_background_gradient(self) -> None:
+        for y in range(0, BASE_H, 4):
+            ratio = y / BASE_H
+            r = int(COLOR_BG[0] * (1 - ratio) + COLOR_BG_GRADIENT[0] * ratio)
+            g = int(COLOR_BG[1] * (1 - ratio) + COLOR_BG_GRADIENT[1] * ratio)
+            b = int(COLOR_BG[2] * (1 - ratio) + COLOR_BG_GRADIENT[2] * ratio)
+            pygame.draw.line(self.surface, (r, g, b), (0, y), (BASE_W, y))
+        for c in range(0, COLS + 1):
+            x = BOARD_X + c * CELL
+            pygame.draw.line(self.surface, COLOR_GRID_FAINT, (x, BOARD_Y), (x, BOARD_Y + BOARD_H), 2)
+        for r in range(0, ROWS + 1):
+            y = BOARD_Y + r * CELL
+            pygame.draw.line(self.surface, COLOR_GRID_FAINT, (BOARD_X, y), (BOARD_X + BOARD_W, y), 2)
+
+    def _draw_glow_text(self, text: str, pos: tuple[int, int], color: tuple, glow_color: tuple,
+                        font: pygame.font.Font | None = None) -> None:
+        f = font or self.font
+        main_surf = f.render(text, True, color)
+        self.surface.blit(main_surf, (int(pos[0]), int(pos[1])))
+
+    def _draw_glass_panel(self, rect: pygame.Rect, radius: int = 12) -> None:
+        shadow = rect.copy()
+        shadow.x += 5
+        shadow.y += 7
+        shadow_surf = pygame.Surface((shadow.w, shadow.h), pygame.SRCALPHA)
+        pygame.draw.rect(shadow_surf, COLOR_SHADOW, shadow_surf.get_rect(), border_radius=radius)
+        self.surface.blit(shadow_surf, shadow.topleft)
+        panel_surf = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+        pygame.draw.rect(panel_surf, COLOR_PANEL, panel_surf.get_rect(), border_radius=radius)
+        pygame.draw.rect(panel_surf, COLOR_PANEL_BORDER, panel_surf.get_rect(), 2, border_radius=radius)
+        inner = panel_surf.get_rect().inflate(-4, -4)
+        pygame.draw.rect(panel_surf, COLOR_PANEL_INNER_GLOW, inner, 1, border_radius=radius - 2)
+        self.surface.blit(panel_surf, rect.topleft)
+
     def _draw_top_bar(self) -> None:
         fps = int(self.clock.get_fps()) if self.clock else 0
-        fps_surf = self.font.render(f"FPS {fps}", True, COLOR_TEXT_DIM)
-        self.surface.blit(fps_surf, (MARGIN, MARGIN))
+        fps_surf = self._fps_font.render(f"FPS {fps}", True, (140, 180, 140))
+        self.surface.blit(fps_surf, (int(MARGIN), int(MARGIN + 2)))
 
         mode_alpha = 255
         if self._mode_transition < 0.2 and self._prev_mode is not None:
             mode_alpha = int(255 * (self._mode_transition / 0.2))
-        mode_surf = self.mode_font.render(f"MODE: {self.mode_label}", True, COLOR_ACCENT)
-        if mode_alpha < 255:
-            mode_surf.set_alpha(mode_alpha)
-        self.surface.blit(mode_surf, (MARGIN, MARGIN + 18))
+        mode_text = f"MODE: {self.mode_label}"
+        self._draw_glow_text(mode_text, (int(MARGIN), int(MARGIN + 20)), COLOR_ACCENT, COLOR_ACCENT_GLOW, self.mode_font)
 
         if self.is_replay:
             prog = self.replay_progress
             info = self.font.render(
                 f"SPEED {self.replay_speed}x   {prog[0]}/{prog[1]}", True, COLOR_ACCENT2)
-            self.surface.blit(info, (BASE_W - info.get_width() - MARGIN, MARGIN + 28))
-
-    def _draw_panel_with_shadow(self, rect: pygame.Rect, radius: int = 12) -> None:
-        shadow = rect.copy()
-        shadow.x += 4
-        shadow.y += 6
-        shadow_surf = pygame.Surface((shadow.w, shadow.h), pygame.SRCALPHA)
-        shadow_surf.fill((0, 0, 0, 90))
-        self.surface.blit(shadow_surf, shadow.topleft)
-        pygame.draw.rect(self.surface, COLOR_PANEL, rect, border_radius=radius)
-        pygame.draw.rect(self.surface, COLOR_PANEL_BORDER, rect, 1, border_radius=radius)
-        inner = rect.inflate(-3, -3)
-        pygame.draw.rect(self.surface, (50, 56, 74), inner, 1, border_radius=radius - 2)
+            self.surface.blit(info, (int(BASE_W - info.get_width() - MARGIN), int(MARGIN + 28)))
 
     def _draw_hud_left(self, state: State) -> None:
         panel = pygame.Rect(HUD_LEFT_X, HUD_LEFT_Y, HUD_LEFT_W, HUD_LEFT_H)
-        self._draw_panel_with_shadow(panel, radius=12)
+        self._draw_glass_panel(panel, radius=12)
 
         score = int(getattr(state, 'score', 0) or 0)
         level = int(getattr(state, 'level', 0) or 0)
         lines = int(getattr(state, 'total_lines', 0) or 0)
 
-        y = HUD_LEFT_Y + 18
+        y = HUD_LEFT_Y + 14
         for label, val in [("SCORE", score), ("LEVEL", level), ("LINES", lines)]:
-            title = self.font.render(label, True, COLOR_TEXT_DIM)
-            self.surface.blit(title, (HUD_LEFT_X + 12, y))
-            val_surf = self.value_font.render(f"{val}", True, COLOR_VALUE)
-            self.surface.blit(val_surf, (HUD_LEFT_X + 12, y + 18))
-            y += 74
+            _draw_sharp_text(self.surface, label, (HUD_LEFT_X + 14, y), COLOR_TEXT_DIM, self._label_font)
+            val_surf = self._get_value_surface(label, val)
+            self.surface.blit(val_surf, (int(HUD_LEFT_X + 14), int(y + 20)))
+            y += 78
 
         human_mode = self.mode_label == "HUMAN"
         interactive = human_mode
         legend_alpha = 255 if interactive else 90
-        legend_color = COLOR_TEXT_DIM
 
-        header = self.font.render("CONTROLS", True, legend_color)
-        header.set_alpha(legend_alpha)
-        self.surface.blit(header, (HUD_LEFT_X + 12, HUD_LEFT_H - 128))
+        header = self._label_surfaces.get("CONTROLS")
+        if header:
+            header.set_alpha(legend_alpha)
+            self.surface.blit(header, (int(HUD_LEFT_X + 14), int(HUD_LEFT_H - 140)))
 
-        if self.is_replay:
-            hints = ["P       pause", "R       restart", "1/2/4/8 speed"]
-            yy = HUD_LEFT_H - 108
-        elif interactive:
-            hints = ["LEFT/RIGHT move", "UP/X      rotate", "SPACE     hard",
-                     "C/SHIFT   hold", "TAB       AI/HU", "ESC       quit"]
-            yy = HUD_LEFT_H - 108
-        else:
-            hints = ["LEFT/RIGHT move", "UP/X      rotate", "SPACE     hard",
-                     "C/SHIFT   hold", "TAB       AI/HU", "ESC       quit"]
-            yy = HUD_LEFT_H - 108
-
-        for line in hints:
-            surf = self.font.render(line, True, legend_color)
-            surf.set_alpha(legend_alpha)
-            self.surface.blit(surf, (HUD_LEFT_X + 12, yy))
-            yy += 18
+        controls = self._get_controls_surfaces(legend_alpha)
+        yy = HUD_LEFT_H - 120
+        for surf in controls:
+            self.surface.blit(surf, (int(HUD_LEFT_X + 14), int(yy)))
+            yy += 19
 
         if not interactive and not self.is_replay:
             note = self.font.render("(KEYS DISABLED)", True, (80, 80, 95))
             note.set_alpha(130)
-            self.surface.blit(note, (HUD_LEFT_X + 12, HUD_LEFT_H - 16))
+            self.surface.blit(note, (int(HUD_LEFT_X + 14), int(HUD_LEFT_H - 18)))
 
     def _draw_board(self, state: State) -> None:
         board_bg = pygame.Rect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H)
@@ -267,69 +375,91 @@ class Renderer:
 
         for c in range(COLS + 1):
             x = BOARD_X + c * CELL
-            pygame.draw.line(self.surface, COLOR_GRID, (x, BOARD_Y), (x, BOARD_Y + BOARD_H), 1)
+            pygame.draw.line(self.surface, COLOR_GRID_FAINT, (x, BOARD_Y), (x, BOARD_Y + BOARD_H), 1)
         for r in range(ROWS + 1):
             y = BOARD_Y + r * CELL
-            pygame.draw.line(self.surface, COLOR_GRID, (BOARD_X, y), (BOARD_X + BOARD_W, y), 1)
+            pygame.draw.line(self.surface, COLOR_GRID_FAINT, (BOARD_X, y), (BOARD_X + BOARD_W, y), 1)
 
         for r in range(ROWS):
             for c in range(COLS):
                 rect = pygame.Rect(BOARD_X + c * CELL + 1, BOARD_Y + r * CELL + 1, CELL - 2, CELL - 2)
                 cell_val = state.board[r][c] if r < len(state.board) and c < len(state.board[r]) else 0
                 if cell_val:
-                    self._draw_block(rect, PIECE_COLORS.get(cell_val, (200, 200, 200)))
+                    self._draw_3d_block(rect, PIECE_COLORS.get(cell_val, (200, 200, 200)))
 
-        pygame.draw.rect(self.surface, COLOR_BOARD_BORDER, board_bg, 3)
+        border_surf = pygame.Surface((BOARD_W + 6, BOARD_H + 6), pygame.SRCALPHA)
+        pygame.draw.rect(border_surf, COLOR_BOARD_BORDER_GLOW, border_surf.get_rect(), 4, border_radius=4)
+        self.surface.blit(border_surf, (BOARD_X - 3, BOARD_Y - 3))
+        pygame.draw.rect(self.surface, COLOR_BOARD_BORDER, board_bg, 2)
 
-    def _draw_block(self, rect: pygame.Rect, base_color: tuple[int, int, int]) -> None:
-        fill = rect.inflate(-2, -2)
-        pygame.draw.rect(self.surface, base_color, fill)
-
-        inner_glow = fill.inflate(-2, -2)
-        if inner_glow.w > 0 and inner_glow.h > 0:
-            glow_surf = pygame.Surface((inner_glow.w, inner_glow.h), pygame.SRCALPHA)
-            glow_surf.fill((255, 255, 255, 55))
-            self.surface.blit(glow_surf, inner_glow.topleft)
-        pygame.draw.rect(self.surface, (255, 255, 255), fill, 1)
-
-        hl_rect = pygame.Rect(rect.x + 3, rect.y + 3, max(2, rect.w // 5), max(2, rect.h // 7))
-        hl = pygame.Surface((hl_rect.w, hl_rect.h), pygame.SRCALPHA)
-        hl.fill((255, 255, 255, 165))
-        self.surface.blit(hl, hl_rect.topleft)
-
-        sh_rect = pygame.Rect(rect.right - rect.w // 5 - 3, rect.bottom - rect.h // 7 - 3,
-                              max(2, rect.w // 5), max(2, rect.h // 7))
-        sh = pygame.Surface((sh_rect.w, sh_rect.h), pygame.SRCALPHA)
-        sh.fill((0, 0, 0, 130))
-        self.surface.blit(sh, sh_rect.topleft)
+    def _draw_3d_block(self, rect: pygame.Rect, base_color: tuple[int, int, int]) -> None:
+        inset = 2
+        fill = rect.inflate(-inset * 2, -inset * 2)
+        pygame.draw.rect(self.surface, base_color, fill, border_radius=3)
+        hl_top = pygame.Rect(fill.x + 2, fill.y + 2, fill.w - 4, max(2, fill.h // 4))
+        hl_surf = pygame.Surface((hl_top.w, hl_top.h), pygame.SRCALPHA)
+        hl_color = (min(255, base_color[0] + 80), min(255, base_color[1] + 80), min(255, base_color[2] + 80), 140)
+        hl_surf.fill(hl_color)
+        self.surface.blit(hl_surf, hl_top.topleft)
+        sh_bottom = pygame.Rect(fill.x + 2, fill.bottom - max(2, fill.h // 4) - 2, fill.w - 4, max(2, fill.h // 4))
+        sh_surf = pygame.Surface((sh_bottom.w, sh_bottom.h), pygame.SRCALPHA)
+        sh_color = (max(0, base_color[0] - 60), max(0, base_color[1] - 60), max(0, base_color[2] - 60), 120)
+        sh_surf.fill(sh_color)
+        self.surface.blit(sh_surf, sh_bottom.topleft)
+        sh_bottom_edge = pygame.Rect(fill.x + 2, fill.bottom - 4, fill.w - 4, 3)
+        sh_edge_surf = pygame.Surface((sh_bottom_edge.w, sh_bottom_edge.h), pygame.SRCALPHA)
+        sh_edge_surf.fill((0, 0, 0, 80))
+        self.surface.blit(sh_edge_surf, sh_bottom_edge.topleft)
+        pygame.draw.rect(self.surface, (255, 255, 255, 60), fill, 1, border_radius=3)
 
     def _draw_sidebar(self, state: State) -> None:
         panel = pygame.Rect(SIDEBAR_X, SIDEBAR_Y, SIDEBAR_W, SIDEBAR_H)
-        self._draw_panel_with_shadow(panel, radius=12)
+        self._draw_glass_panel(panel, radius=12)
 
-        title = self.font.render("HOLD", True, COLOR_TEXT_DIM)
-        self.surface.blit(title, (SIDEBAR_X + 12, SIDEBAR_Y + 10))
-        hold_rect = pygame.Rect(SIDEBAR_X + 12, SIDEBAR_Y + 34, 80, 70)
-        pygame.draw.rect(self.surface, COLOR_BOARD_BG, hold_rect, border_radius=8)
-        pygame.draw.rect(self.surface, COLOR_PANEL_BORDER, hold_rect, 1, border_radius=8)
+        hold_label = self._sidebar_labels.get("HOLD")
+        if hold_label:
+            self.surface.blit(hold_label, (int(SIDEBAR_X + 14), int(SIDEBAR_Y + 12)))
+        hold_rect = pygame.Rect(SIDEBAR_X + 14, SIDEBAR_Y + 38, 84, 74)
+        pygame.draw.rect(self.surface, COLOR_BOARD_BG, hold_rect, border_radius=10)
+        pygame.draw.rect(self.surface, COLOR_PANEL_BORDER, hold_rect, 1, border_radius=10)
         hold_val = getattr(state, 'hold_piece', None)
         if hold_val is not None and hold_val != 0:
-            self._draw_block(hold_rect.inflate(-4, -4), PIECE_COLORS.get(hold_val, (200, 200, 200)))
+            scale = self._get_breath_scale()
+            center_x = hold_rect.centerx
+            center_y = hold_rect.centery
+            scaled_w = int(hold_rect.w * scale)
+            scaled_h = int(hold_rect.h * scale)
+            scaled_rect = pygame.Rect(center_x - scaled_w // 2, center_y - scaled_h // 2, scaled_w, scaled_h)
+            self._draw_3d_block(scaled_rect, PIECE_COLORS.get(hold_val, (200, 200, 200)))
         elif hold_val == 0:
-            hint = self.font.render("empty", True, (70, 70, 85))
-            hint.set_alpha(120)
-            self.surface.blit(hint, hint.get_rect(center=hold_rect.center))
+            hint = self._sidebar_labels.get("empty")
+            if hint:
+                hint.set_alpha(120)
+                self.surface.blit(hint, hint.get_rect(center=(int(hold_rect.centerx), int(hold_rect.centery))))
 
-        title2 = self.font.render("NEXT", True, COLOR_TEXT_DIM)
-        self.surface.blit(title2, (SIDEBAR_X + 12, SIDEBAR_Y + 124))
+        next_label = self._sidebar_labels.get("NEXT")
+        if next_label:
+            self.surface.blit(next_label, (int(SIDEBAR_X + 14), int(SIDEBAR_Y + 132)))
         queue = getattr(state, 'next_queue', []) or []
         for i in range(5):
-            slot_rect = pygame.Rect(SIDEBAR_X + 12, SIDEBAR_Y + 148 + i * 36, 60, 30)
-            pygame.draw.rect(self.surface, (16, 18, 26), slot_rect, border_radius=5)
-            pygame.draw.rect(self.surface, (55, 62, 78), slot_rect, 1, border_radius=5)
+            slot_rect = pygame.Rect(SIDEBAR_X + 14, SIDEBAR_Y + 158 + i * 38, 64, 32)
+            pygame.draw.rect(self.surface, (20, 22, 32), slot_rect, border_radius=6)
+            pygame.draw.rect(self.surface, (60, 68, 85), slot_rect, 1, border_radius=6)
             piece = queue[i] if i < len(queue) else 0
             if piece:
-                self._draw_block(slot_rect.inflate(-4, -4), PIECE_COLORS.get(piece, (200, 200, 200)))
+                scale = self._get_breath_scale()
+                center_x = slot_rect.centerx
+                center_y = slot_rect.centery
+                scaled_w = int(slot_rect.w * scale)
+                scaled_h = int(slot_rect.h * scale)
+                scaled_rect = pygame.Rect(center_x - scaled_w // 2, center_y - scaled_h // 2, scaled_w, scaled_h)
+                self._draw_3d_block(scaled_rect, PIECE_COLORS.get(piece, (200, 200, 200)))
+            else:
+                inner_slot = slot_rect.inflate(-6, -6)
+                dash_len = 4
+                gap_len = 4
+                for dx in range(inner_slot.x, inner_slot.x + inner_slot.w, dash_len + gap_len):
+                    pygame.draw.line(self.surface, (50, 55, 70, 80), (int(dx), int(inner_slot.centery)), (int(dx + dash_len), int(inner_slot.centery)), 1)
 
     def _draw_line_animations(self) -> None:
         for anim in self.line_animations:
@@ -364,10 +494,10 @@ class Renderer:
     def _draw_float_texts(self) -> None:
         for ft in self.float_texts:
             alpha = ft.alpha
-            surf = self.big_font.render(ft.text, True, COLOR_ACCENT)
+            surf = self.big_font.render(ft.text, True, COLOR_ACCENT2)
             surf.set_alpha(alpha)
             rect = surf.get_rect(center=(int(ft.center_x), int(ft.current_y)))
-            self.surface.blit(surf, rect.topleft)
+            self.surface.blit(surf, (int(rect.x), int(rect.y)))
 
     def _draw_overlay_texts(self) -> None:
         center = pygame.Rect(0, 0, BASE_W, BASE_H).center
@@ -375,13 +505,11 @@ class Renderer:
         big_font = _sf(_sys, 72, bold=True)
 
         if self.is_paused:
-            big = big_font.render("PAUSED", True, COLOR_ACCENT)
+            self._draw_glow_text("PAUSED", (int(center[0] - 140), int(center[1] - 40)), COLOR_ACCENT, COLOR_ACCENT_GLOW, big_font)
             sub = self.font.render("Press P to resume", True, COLOR_TEXT_DIM)
-            self.surface.blit(big, big.get_rect(center=(center[0], center[1] - 20)))
-            self.surface.blit(sub, sub.get_rect(center=(center[0], center[1] + 30)))
+            self.surface.blit(sub, (int(center[0] - sub.get_width() // 2), int(center[1] + 30)))
 
         if self.replay_finished and self.is_replay:
-            big = _sf(_sys, 54, bold=True).render("REPLAY FINISHED", True, COLOR_ACCENT2)
+            self._draw_glow_text("REPLAY FINISHED", (int(center[0] - 180), int(center[1] + 60)), COLOR_ACCENT2, (255, 230, 60, 80), _sf(_sys, 54, bold=True))
             sub = self.font.render("Press R to restart", True, COLOR_TEXT_DIM)
-            self.surface.blit(big, big.get_rect(center=(center[0], center[1] + 80)))
-            self.surface.blit(sub, sub.get_rect(center=(center[0], center[1] + 120)))
+            self.surface.blit(sub, (int(center[0] - sub.get_width() // 2), int(center[1] + 120)))
